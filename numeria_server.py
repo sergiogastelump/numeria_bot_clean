@@ -12,25 +12,23 @@ if not DATAMIND_API_URL:
 
 app = Flask(__name__)
 
+# Crear app de Telegram (PTB 21)
 telegram_app = ApplicationBuilder().token(TOKEN).build()
 initialized = False
 
 # Handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
+    text = update.message.text or ""
     await update.message.reply_text(f"🔮 NumerIA activo\nTu mensaje: {text}")
 
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     global initialized
-
     data = request.get_json(force=True)
     update = Update.de_json(data, telegram_app.bot)
 
-    # Obtener el event loop global REAL
     loop = asyncio.get_event_loop()
 
     if not initialized:
@@ -41,11 +39,9 @@ def webhook():
     loop.run_until_complete(telegram_app.process_update(update))
     return "ok", 200
 
-
 @app.route("/")
 def home():
-    return "NumerIA bot activo con PTB 20.7 🔥", 200
-
+    return "NumerIA bot activo con PTB 21 + Flask 🔥", 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
