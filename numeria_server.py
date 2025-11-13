@@ -1,139 +1,87 @@
 import os
 import json
-import urllib.request
-from flask import Flask, request
-from telegram import Update, Bot
-from telegram.ext import Dispatcher, MessageHandler, Filters
+import asyncio
+import logging
+import requests
+from flask import Flask, request, jsonify
+from telegram import Update
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 
-# ================================
-# VARIABLES DE ENTORNO
-# ================================
+# =====================
+# CONFIGURACIÓN BÁSICA
+# =====================
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-DATAMIND_API_URL = os.getenv("DATAMIND_API_URL")
+DATAMIND_API_URL = os.getenv("DATAMIND_API_URL", "https://numeria-datamind-eykx.onrender.com/predict")
 
-if not TOKEN:
-    raise RuntimeError("FALTA TELEGRAM_TOKEN en las Environment Variables.")
-
-if not DATAMIND_API_URL:
-    raise RuntimeError("FALTA DATAMIND_API_URL en las Environment Variables.")
-
-# ================================
-# FLASK
-# ================================
 app = Flask(__name__)
 
-# ================================
-# TELEGRAM (SÍNCRONO)
-# ================================
-bot = Bot(token=TOKEN)
-dispatcher = Dispatcher(bot, None, workers=0)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("numeria-server")
 
-# ================================
-# FUNCIÓN: Interpretación Numerológica
-# ================================
-def interpretar_numerologia(texto):
-    total = sum(ord(c) for c in texto)
-    numero = total % 9 or 9
+# =====================
+# HANDLERS DE TELEGRAM
+# =====================
+telegram_app = ApplicationBuilder().token(TOKEN).build()
 
-    interpretaciones = {
-        1: "Nuevo comienzo energético. Tendencia ofensiva.",
-        2: "Energía equilibrada. Posibilidad alta de empate.",
-        3: "Vibración creativa. Partido con goles.",
-        4: "Control táctico. Partido cerrado.",
-        5: "Energía cambiante. Resultado inesperado.",
-        6: "Armonía. Buen rendimiento del local.",
-        7: "Análisis profundo. Juego estratégico.",
-        8: "Poder y dominio físico.",
-        9: "Cierre de ciclo. Marcador amplio probable."
-    }
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👋 Hola, soy NumerIA. Envíame un código o mensaje para analizarlo con DataMind.")
 
-    return numero, interpretaciones[numero]
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    user_name = update.effective_user.first_name
+    chat_id = update.effective_chat.id
 
-# ================================
-# FUNCIÓN: Consultar DataMind (POST)
-# ================================
-def consultar_datamind(consulta_texto):
-    payload = json.dumps({"consulta": consulta_texto}).encode("utf-8")
+    # Mensaje inicial
+    await update.message.reply_text("⏳ Analizando tu mensaje...")
 
+    # Petición a DataMind
     try:
-        req = urllib.request.Request(
-            DATAMIND_API_URL,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
+        payload = {"user": user_name, "text": user_text}
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(DATAMIND_API_URL, json=payload, headers=headers, timeout=10)
 
-        with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode())
-
-        return data
+        if response.status_code == 200:
+            data = response.json()
+            result = data.get("interpretation", "No se obtuvo respuesta de DataMind.")
+            await context.bot.send_message(chat_id=chat_id, text=f"🧠 {result}")
+        else:
+            await context.bot.send_message(chat_id=chat_id, text="⚠️ Error en DataMind (no disponible).")
 
     except Exception as e:
-        return {"error": str(e)}
+        logger.exception("Error comunicando con DataMind")
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ Error interno: {e}")
 
-# ================================
-# HANDLER DE MENSAJES
-# ================================
-def handle_message(update, context):
-    texto = update.message.text
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # 1) Interpretación numerológica
-    numero, significado = interpretar_numerologia(texto)
+# =====================
+# RUTAS FLASK
+# =====================
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({"message": "✅ NumerIA activo con DataMind IA"}), 200
 
-    # 2) Llamada a DataMind
-    resultado_ia = consultar_datamind(texto)
-
-    if "error" in resultado_ia:
-        respuesta = (
-            f"🔮 *NumerIA – Interpretación Mística*\n"
-            f"Número maestro: *{numero}*\n"
-            f"Significado: _{significado}_\n\n"
-            f"⚠️ DataMind no respondió.\n"
-            f"Tipster solo con numerología."
-        )
-    else:
-        pred = resultado_ia["prediccion"]
-        confi = resultado_ia["confianza"]
-        analisis = resultado_ia.get("analisis", "Sin análisis adicional.")
-
-        respuesta = (
-            f"🔮 *NumerIA – Modo Tipster Híbrido*\n\n"
-            f"📌 *Consulta:* {texto}\n\n"
-            f"✨ *Numerología*\n"
-            f"Número maestro: *{numero}*\n"
-            f"Interpretación: _{significado}_\n\n"
-            f"🤖 *IA DataMind*\n"
-            f"- Local: {pred['local']}%\n"
-            f"- Empate: {pred['empate']}%\n"
-            f"- Visita: {pred['visita']}%\n"
-            f"- Confianza del modelo: {int(confi*100)}%\n"
-            f"Análisis IA: _{analisis}_\n\n"
-            f"🎯 *Conclusión Tipster*\n"
-            f"Combinando numerología + IA, la inclinación final es: *{max(pred, key=pred.get).upper()}*."
-        )
-
-    update.message.reply_text(respuesta, parse_mode="Markdown")
-
-# Registrar handler
-dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
-
-# ================================
-# WEBHOOK
-# ================================
-@app.route("/webhook", methods=["POST"])
+@app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, bot)
-    dispatcher.process_update(update)
-    return "ok", 200
+    try:
+        update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+        asyncio.run(telegram_app.process_update(update))
+    except Exception as e:
+        logger.exception("Error procesando update")
+    return "OK", 200
 
-@app.route("/")
-def index():
-    return "NumerIA bot activo ✔", 200
+@app.route("/setwebhook", methods=["GET"])
+def set_webhook():
+    try:
+        url = f"https://numeria-bot-v2.onrender.com/{TOKEN}"
+        r = requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook", params={"url": url})
+        return jsonify(r.json()), 200
+    except Exception as e:
+        logger.exception("Error configurando webhook")
+        return jsonify({"error": str(e)}), 500
 
-# ================================
-# RUN
-# ================================
+# =====================
+# MAIN
+# =====================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
