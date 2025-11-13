@@ -61,15 +61,45 @@ def interpretar_numero(numero):
 
 
 # ============================================================
-# 🔮 INTERPRETACIÓN DE FECHAS (nuevo)
+# 🔮 INTERPRETACIÓN DE CÓDIGOS MÍSTICOS (nuevo)
+# ============================================================
+CODIGOS_MISTICOS = {
+    "111": "Portal de intención. Inicio de una nueva dirección.",
+    "222": "Alineación y equilibrio. Momento de tomar decisiones meditadas.",
+    "333": "Expansión y creatividad divina.",
+    "444": "Protección espiritual y fortaleza interna.",
+    "555": "Cambio brusco o giro inesperado.",
+    "666": "Responsabilidad, enfoque interno y reflexión.",
+    "777": "Intuición elevada y claridad espiritual.",
+    "888": "Abundancia, éxito y avance.",
+    "999": "Cierre de ciclo y concreción.",
+    "1010": "Camino correcto. Avance alineado.",
+    "1111": "Máximo potencial. Portal mayor de manifestación.",
+    "2222": "Balance profundo. Atención a señales.",
+    "4444": "Máxima protección. Buen momento para decisiones difíciles.",
+    "7777": "Intuición extrema. Señales claras."
+}
+
+def procesar_codigo_mistico(texto):
+    limpio = texto.replace(" ", "")
+    if limpio in CODIGOS_MISTICOS:
+        significado = CODIGOS_MISTICOS[limpio]
+
+        return (
+            f"✨ *Código Místico Detectado: {limpio}*\n\n"
+            f"📘 *Significado:* {significado}\n\n"
+            f"🎯 *Conclusión Tipster:* Este código indica una energía específica "
+            f"alineada con *{significado.lower()}*. Puede influir en tendencias, "
+            f"momentos clave del partido o decisiones estratégicas."
+        )
+
+    return None
+
+
+# ============================================================
+# 🔮 INTERPRETACIÓN DE FECHAS
 # ============================================================
 def procesar_fecha(texto):
-    """
-    Acepta fechas en formatos:
-    - 12/05/1998
-    - 12-05-1998
-    - 12 05 1998
-    """
     import re
     patron = r"(\d{1,2})[\/\-\s](\d{1,2})[\/\-\s](\d{2,4})"
     match = re.search(patron, texto)
@@ -81,7 +111,6 @@ def procesar_fecha(texto):
     mes = int(match.group(2))
     anio = int(match.group(3))
 
-    # Reducciones
     rd = reducir(dia)
     rm = reducir(mes)
     ra = reducir(anio)
@@ -98,8 +127,7 @@ def procesar_fecha(texto):
         f"✨ *Vibración:* {vibracion}\n\n"
         f"📘 *Significado:* {significado}\n\n"
         f"🎯 *Conclusión Tipster:* Esta fecha tiene una energía *{vibracion}*, "
-        f"por lo que tiende hacia escenarios alineados con esa vibración. "
-        f"Puede influir en rendimiento, actitud o resultados si está relacionada con un evento deportivo."
+        f"indicando escenarios alineados con esa vibración."
     )
 
 
@@ -117,20 +145,25 @@ def reducir(n):
 # 🔮 PROCESADOR CENTRAL
 # ============================================================
 def procesar_interpretacion(texto):
-    # 1) Intentar detectar fecha
+    # 1) Códigos místicos
+    cod = procesar_codigo_mistico(texto)
+    if cod:
+        return cod
+
+    # 2) Fechas
     respuesta_fecha = procesar_fecha(texto)
     if respuesta_fecha:
         return respuesta_fecha
 
-    # 2) Si no es fecha → número común
+    # 3) Números normales
     limpio = ''.join(c for c in texto if c.isdigit())
     if not limpio:
         return (
             "🔮 *NumerIA – Guía rápida*\n"
             "Puedes enviar:\n"
-            "• Un número (ej: 27)\n"
-            "• Una fecha (ej: 12/05/1998)\n"
-            "• Un código místico\n"
+            "• Un número (27)\n"
+            "• Una fecha (12/05/1998)\n"
+            "• Un código místico (111, 4444, 777)\n"
         )
 
     n = reducir(limpio)
@@ -140,19 +173,18 @@ def procesar_interpretacion(texto):
         f"🔢 *Número Base:* {n}\n"
         f"✨ *Vibración:* {vibracion}\n\n"
         f"📘 *Interpretación:* {significado}\n\n"
-        f"🎯 *Conclusión Tipster:* La energía actual se inclina hacia un escenario "
-        f"*{vibracion}*, lo que influye en tendencia, desempeño o marcador probable."
+        f"🎯 *Conclusión Tipster:* Escenario con energía *{vibracion}*."
     )
 
 
 # ============================================================
-# 🔹 HANDLERS
+# HANDLERS
 # ============================================================
 def start(update: Update, context):
     update.message.reply_text(
         "🌟 *Bienvenido a NumerIA* 🌟\n"
         "Soy tu asistente numerológico deportivo.\n\n"
-        "Envía un número, una fecha o un código para iniciar tu lectura.",
+        "Envía un número, una fecha o un código místico.",
         parse_mode="Markdown"
     )
 
@@ -162,8 +194,7 @@ def help_cmd(update: Update, context):
         "Puedes enviar:\n"
         "• Un número (27)\n"
         "• Una fecha (12/05/1998)\n"
-        "• Un código místico\n\n"
-        "Y obtendrás una interpretación + conclusión estilo tipster.",
+        "• Un código místico (111, 7777, 444)\n",
         parse_mode="Markdown"
     )
 
