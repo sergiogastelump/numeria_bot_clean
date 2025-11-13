@@ -12,7 +12,11 @@ if not DATAMIND_API_URL:
 
 app = Flask(__name__)
 
-# Crear app de Telegram (PTB 21)
+# 🟩 Crear un loop global ÚNICO
+GLOBAL_LOOP = asyncio.new_event_loop()
+asyncio.set_event_loop(GLOBAL_LOOP)
+
+# 🟩 Crear la aplicación de Telegram sobre ese loop
 telegram_app = ApplicationBuilder().token(TOKEN).build()
 initialized = False
 
@@ -23,25 +27,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     global initialized
+
     data = request.get_json(force=True)
     update = Update.de_json(data, telegram_app.bot)
 
-    loop = asyncio.get_event_loop()
-
+    # 🟩 Ejecutar SIEMPRE en el LOOP GLOBAL
     if not initialized:
-        loop.run_until_complete(telegram_app.initialize())
-        loop.run_until_complete(telegram_app.start())
+        GLOBAL_LOOP.run_until_complete(telegram_app.initialize())
+        GLOBAL_LOOP.run_until_complete(telegram_app.start())
         initialized = True
 
-    loop.run_until_complete(telegram_app.process_update(update))
+    GLOBAL_LOOP.run_until_complete(telegram_app.process_update(update))
+
     return "ok", 200
+
 
 @app.route("/")
 def home():
-    return "NumerIA bot activo con PTB 21 + Flask 🔥", 200
+    return "NumerIA bot activo con LOOP GLOBAL 🔥", 200
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
