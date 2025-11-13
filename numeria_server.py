@@ -230,7 +230,7 @@ def home():
     return "NumerIA Bot funcionando correctamente. 🚀", 200
 
 
-@app.route(f"/webhook/{TOKEN}", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         data = request.get_json(force=True)
