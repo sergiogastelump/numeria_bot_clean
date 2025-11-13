@@ -57,7 +57,7 @@ def interpretar_numero(numero):
         9: "decisiva"
     }
 
-    return significados.get(numero, "Número fuera de rango"), vibraciones.get(numero, "desconocida")
+    return significados[numero], vibraciones[numero]
 
 
 # ============================================================
@@ -85,12 +85,19 @@ def procesar_codigo_mistico(texto):
     if limpio in CODIGOS_MISTICOS:
         significado = CODIGOS_MISTICOS[limpio]
 
-        return (
-            f"✨ *Código Místico Detectado: {limpio}*\n\n"
-            f"📘 *Significado:* {significado}\n\n"
-            f"🎯 *Conclusión Tipster:* Energía alineada con *{significado.lower()}*. "
-            f"Puede influir en momentos clave o decisiones deportivas."
-        )
+        return {
+            "codigo": limpio,
+            "significado": significado,
+            "vibracion": "mística",
+            "texto": (
+                f"✨ *Código Místico Detectado: {limpio}*\n\n"
+                f"📘 *Significado:* {significado}\n\n"
+                f"🎯 *Conclusión Tipster:* Energía espiritual activa que puede marcar "
+                f"momentos clave o influir en decisiones deportivas."
+            )
+        }
+
+    return None
 
 
 # ============================================================
@@ -98,12 +105,10 @@ def procesar_codigo_mistico(texto):
 # ============================================================
 def nombre_a_numero(nombre):
     nombre = nombre.replace(" ", "").upper()
-
     if not nombre.isalpha():
         return None
 
-    total = sum(ord(c) - 64 for c in nombre)  # A=1, B=2...
-    return total
+    return sum(ord(c) - 64 for c in nombre)
 
 def procesar_nombre(texto):
     total = nombre_a_numero(texto)
@@ -113,15 +118,20 @@ def procesar_nombre(texto):
     reducido = reducir(total)
     significado, vibracion = interpretar_numero(reducido)
 
-    return (
-        f"🔤 *Interpretación de Nombre*\n"
-        f"➡ Valor total: {total}\n"
-        f"➡ Reducción: {reducido}\n\n"
-        f"📘 *Significado:* {significado}\n"
-        f"✨ *Vibración:* {vibracion}\n\n"
-        f"🎯 *Conclusión Tipster:* El nombre tiene energía *{vibracion}*. "
-        f"Esto puede influir en comportamiento, momentos clave o desempeño deportivo."
-    )
+    return {
+        "nombre": texto,
+        "total": total,
+        "reducido": reducido,
+        "significado": significado,
+        "vibracion": vibracion,
+        "texto": (
+            f"🔤 *Interpretación de Nombre*\n"
+            f"➡ Valor total: {total}\n"
+            f"➡ Reducción: {reducido}\n\n"
+            f"📘 *Significado:* {significado}\n"
+            f"✨ *Vibración:* {vibracion}\n"
+        )
+    }
 
 
 # ============================================================
@@ -146,17 +156,22 @@ def procesar_fecha(texto):
 
     significado, vibracion = interpretar_numero(total)
 
-    return (
-        f"📅 *Interpretación de Fecha*\n"
-        f"➡ Día: {dia} → {rd}\n"
-        f"➡ Mes: {mes} → {rm}\n"
-        f"➡ Año: {anio} → {ra}\n\n"
-        f"🔢 *Número Final:* {total}\n"
-        f"✨ *Vibración:* {vibracion}\n\n"
-        f"📘 *Significado:* {significado}\n\n"
-        f"🎯 *Conclusión Tipster:* Fecha con energía *{vibracion}*. "
-        f"Influye en resultados, rendimiento o momentos clave."
-    )
+    return {
+        "dia": rd,
+        "mes": rm,
+        "anio": ra,
+        "final": total,
+        "significado": significado,
+        "vibracion": vibracion,
+        "texto": (
+            f"📅 *Interpretación de Fecha*\n"
+            f"➡ Día: {dia} → {rd}\n"
+            f"➡ Mes: {mes} → {rm}\n"
+            f"➡ Año: {anio} → {ra}\n\n"
+            f"🔢 *Número Final:* {total}\n"
+            f"✨ *Vibración:* {vibracion}\n"
+        )
+    }
 
 
 # ============================================================
@@ -170,46 +185,97 @@ def reducir(n):
 
 
 # ============================================================
+# 🔮 INTERPRETACIÓN CRUZADA (NOMBRE + FECHA + NÚMERO + CÓDIGO)
+# ============================================================
+def interpretacion_cruzada(partes):
+    textos = []
+    vibraciones = []
+
+    # NOMBRE
+    if partes.get("nombre"):
+        textos.append(partes["nombre"]["texto"])
+        vibraciones.append(partes["nombre"]["vibracion"])
+
+    # FECHA
+    if partes.get("fecha"):
+        textos.append(partes["fecha"]["texto"])
+        vibraciones.append(partes["fecha"]["vibracion"])
+
+    # CÓDIGO
+    if partes.get("codigo"):
+        textos.append(partes["codigo"]["texto"])
+        vibraciones.append("mística")
+
+    # NÚMERO
+    if partes.get("numero"):
+        textos.append(partes["numero"]["texto"])
+        vibraciones.append(partes["numero"]["vibracion"])
+
+    # Vibración final
+    vibracion_final = "mixta"
+
+    if all(v in ["muy positiva", "positiva"] for v in vibraciones):
+        vibracion_final = "muy positiva"
+    elif all(v in ["neutral", "estable"] for v in vibraciones):
+        vibracion_final = "estable"
+    elif any(v == "volátil" for v in vibraciones):
+        vibracion_final = "volátil"
+    elif any(v == "mística" for v in vibraciones):
+        vibracion_final = "mística"
+
+    conclusion = (
+        f"\n\n🎯 *Conclusión Tipster – Interpretación Cruzada*\n"
+        f"La energía combinada genera una vibración *{vibracion_final}*. "
+        f"Esto puede influir en tendencia, rendimiento, intensidad del juego o momentos clave.\n"
+        f"Recomendación: tomar decisiones en alineación con esta vibración."
+    )
+
+    return "\n\n".join(textos) + conclusion
+
+
+# ============================================================
 # 🔮 PROCESADOR CENTRAL
 # ============================================================
 def procesar_interpretacion(texto):
-    # 1) Códigos místicos
+    partes = {}
+
+    # 1) Código
     cod = procesar_codigo_mistico(texto)
     if cod:
-        return cod
+        partes["codigo"] = cod
 
-    # 2) Fechas
+    # 2) Fecha
     fecha = procesar_fecha(texto)
     if fecha:
-        return fecha
+        partes["fecha"] = fecha
 
-    # 3) Nombres
+    # 3) Nombre
     nombre = procesar_nombre(texto)
     if nombre:
-        return nombre
+        partes["nombre"] = nombre
 
-    # 4) Números generales
+    # 4) Número libre
     limpio = ''.join(c for c in texto if c.isdigit())
     if limpio:
-        n = reducir(limpio)
-        significado, vibracion = interpretar_numero(n)
+        base = reducir(limpio)
+        significado, vibracion = interpretar_numero(base)
+        partes["numero"] = {
+            "valor": base,
+            "significado": significado,
+            "vibracion": vibracion,
+            "texto": (
+                f"🔢 *Número Base Detectado:* {base}\n"
+                f"📘 *Interpretación:* {significado}\n"
+                f"✨ *Vibración:* {vibracion}\n"
+            )
+        }
 
-        return (
-            f"🔢 *Número Base:* {n}\n"
-            f"✨ *Vibración:* {vibracion}\n\n"
-            f"📘 *Interpretación:* {significado}\n\n"
-            f"🎯 *Conclusión Tipster:* Escenario con energía *{vibracion}*."
-        )
+    # Si solo hubo una categoría → devolver normal
+    if len(partes) == 1:
+        return list(partes.values())[0]["texto"]
 
-    # 5) Fallback
-    return (
-        "🔮 *NumerIA – Guía rápida*\n"
-        "Puedes enviar:\n"
-        "• Un nombre (Messi, Real Madrid)\n"
-        "• Una fecha (12/05/1998)\n"
-        "• Un número (27)\n"
-        "• Un código místico (111, 777, 4444)\n"
-    )
+    # Si hubo varias → interpretación cruzada profesional
+    return interpretacion_cruzada(partes)
 
 
 # ============================================================
@@ -218,15 +284,20 @@ def procesar_interpretacion(texto):
 def start(update: Update, context):
     update.message.reply_text(
         "🌟 *Bienvenido a NumerIA* 🌟\n"
-        "Interpretación numerológica aplicada al deporte.\n"
-        "Envía un nombre, una fecha, un número o un código.",
+        "Interpretación numerológica místico–deportiva.\n"
+        "Envía un nombre, fecha, número o código místico.\n"
+        "También puedes combinarlos: 'Real Madrid 14/02/2025'.",
         parse_mode="Markdown"
     )
 
 def help_cmd(update: Update, context):
     update.message.reply_text(
         "📘 *Ayuda*\n"
-        "Puedes enviar nombres, fechas, números o códigos místicos.\n",
+        "Ejemplos:\n"
+        "• Real Madrid\n"
+        "• 12/05/1998\n"
+        "• 777\n"
+        "• Messi 14/06/1987\n",
         parse_mode="Markdown"
     )
 
