@@ -28,21 +28,21 @@ telegram_app = ApplicationBuilder().token(TOKEN).build()
 
 
 # ============================================================
-# 🔮 MOTOR NUMEROLÓGICO BASE (interpretación general)
+# 🔮 MOTOR NUMEROLÓGICO BASE
 # ============================================================
 def interpretar_numero(numero):
     numero = int(numero)
 
     significados = {
-        1: "Liderazgo, impulso, inicio. En el camino deportivo indica energía que empuja hacia adelante.",
-        2: "Cooperación, equilibrio. En apuestas indica análisis, prudencia y decisiones calculadas.",
-        3: "Creatividad, expansión. Puede indicar partidos con goles o movimientos inesperados.",
-        4: "Orden, estructura. Suelen ser marcadores cerrados o juegos más tácticos.",
-        5: "Movimiento, cambio. Partidos dinámicos, goles y variaciones fuertes.",
-        6: "Responsabilidad, armonía. Energía estable, balanceada, confiable.",
-        7: "Intuición, análisis profundo. Buena vibración para predicciones inteligentes.",
-        8: "Poder, éxito, resultados fuertes. Indica tendencias claras y marcadores contundentes.",
-        9: "Cierre de ciclos, conclusiones. Buen número para últimas jornadas y definiciones."
+        1: "Liderazgo, impulso, inicio.",
+        2: "Cooperación, equilibrio.",
+        3: "Creatividad, expansión.",
+        4: "Orden, estructura.",
+        5: "Movimiento, cambio.",
+        6: "Responsabilidad, armonía.",
+        7: "Intuición, análisis profundo.",
+        8: "Poder, éxito, fuerza.",
+        9: "Cierre de ciclos, culminación."
     }
 
     vibraciones = {
@@ -61,32 +61,87 @@ def interpretar_numero(numero):
 
 
 # ============================================================
-# 🔮 PROCESADOR CENTRAL DE MENSAJES
+# 🔮 INTERPRETACIÓN DE FECHAS (nuevo)
 # ============================================================
-def procesar_interpretacion(texto):
-    # Solo aceptamos números por ahora
-    limpio = ''.join(c for c in texto if c.isdigit())
+def procesar_fecha(texto):
+    """
+    Acepta fechas en formatos:
+    - 12/05/1998
+    - 12-05-1998
+    - 12 05 1998
+    """
+    import re
+    patron = r"(\d{1,2})[\/\-\s](\d{1,2})[\/\-\s](\d{2,4})"
+    match = re.search(patron, texto)
 
-    if not limpio:
-        return (
-            "🔮 *NumerIA – Interpretación Inicial*\n"
-            "Envía un *número*, una *fecha* o un *código* para obtener una interpretación."
-        )
+    if not match:
+        return None
 
-    # Reducimos numerológicamente
-    n = sum(int(d) for d in limpio)
+    dia = int(match.group(1))
+    mes = int(match.group(2))
+    anio = int(match.group(3))
+
+    # Reducciones
+    rd = reducir(dia)
+    rm = reducir(mes)
+    ra = reducir(anio)
+    total = reducir(rd + rm + ra)
+
+    significado, vibracion = interpretar_numero(total)
+
+    return (
+        f"📅 *Interpretación de Fecha*\n"
+        f"➡ Día: {dia} → {rd}\n"
+        f"➡ Mes: {mes} → {rm}\n"
+        f"➡ Año: {anio} → {ra}\n\n"
+        f"🔢 *Número Final:* {total}\n"
+        f"✨ *Vibración:* {vibracion}\n\n"
+        f"📘 *Significado:* {significado}\n\n"
+        f"🎯 *Conclusión Tipster:* Esta fecha tiene una energía *{vibracion}*, "
+        f"por lo que tiende hacia escenarios alineados con esa vibración. "
+        f"Puede influir en rendimiento, actitud o resultados si está relacionada con un evento deportivo."
+    )
+
+
+# ============================================================
+# 🔹 REDUCCIÓN NUMEROLÓGICA
+# ============================================================
+def reducir(n):
+    n = int(n)
     while n > 9:
         n = sum(int(d) for d in str(n))
+    return n
 
+
+# ============================================================
+# 🔮 PROCESADOR CENTRAL
+# ============================================================
+def procesar_interpretacion(texto):
+    # 1) Intentar detectar fecha
+    respuesta_fecha = procesar_fecha(texto)
+    if respuesta_fecha:
+        return respuesta_fecha
+
+    # 2) Si no es fecha → número común
+    limpio = ''.join(c for c in texto if c.isdigit())
+    if not limpio:
+        return (
+            "🔮 *NumerIA – Guía rápida*\n"
+            "Puedes enviar:\n"
+            "• Un número (ej: 27)\n"
+            "• Una fecha (ej: 12/05/1998)\n"
+            "• Un código místico\n"
+        )
+
+    n = reducir(limpio)
     significado, vibracion = interpretar_numero(n)
 
     return (
         f"🔢 *Número Base:* {n}\n"
         f"✨ *Vibración:* {vibracion}\n\n"
         f"📘 *Interpretación:* {significado}\n\n"
-        f"🎯 *Conclusión Tipster:* Según esta vibración, "
-        f"la energía actual se inclina hacia un escenario *{vibracion}*, lo que puede influir "
-        f"en desempeño, marcador o tendencia del evento consultado."
+        f"🎯 *Conclusión Tipster:* La energía actual se inclina hacia un escenario "
+        f"*{vibracion}*, lo que influye en tendencia, desempeño o marcador probable."
     )
 
 
@@ -97,17 +152,19 @@ def start(update: Update, context):
     update.message.reply_text(
         "🌟 *Bienvenido a NumerIA* 🌟\n"
         "Soy tu asistente numerológico deportivo.\n\n"
-        "Envía un número, fecha o código para iniciar tu lectura."
+        "Envía un número, una fecha o un código para iniciar tu lectura.",
+        parse_mode="Markdown"
     )
 
 def help_cmd(update: Update, context):
     update.message.reply_text(
         "📘 *Ayuda de NumerIA*\n\n"
         "Puedes enviar:\n"
-        "• Un número (ej: 27)\n"
-        "• Una fecha (ej: 12/05/1998)\n"
+        "• Un número (27)\n"
+        "• Una fecha (12/05/1998)\n"
         "• Un código místico\n\n"
-        "Y obtendrás una interpretación + conclusión estilo tipster."
+        "Y obtendrás una interpretación + conclusión estilo tipster.",
+        parse_mode="Markdown"
     )
 
 def handle_message(update: Update, context):
