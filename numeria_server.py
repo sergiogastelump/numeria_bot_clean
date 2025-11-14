@@ -1,131 +1,135 @@
 import os
 import logging
 import asyncio
-from flask import Flask, request
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
-import httpx
+from flask import Flask, request, jsonify
+from telegram import Update, Bot
+from telegram.ext import (
+    Application,
+    MessageHandler,
+    CommandHandler,
+    ContextTypes,
+    filters
+)
+import requests
 
-# ==============================================
-# LOGGING
-# ==============================================
+
+# ==============================
+# CONFIGURACIÓN INICIAL
+# ==============================
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("numeria_server")
 
-# ==============================================
-# ENV VARIABLES
-# ==============================================
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 DATAMIND_API_URL = os.getenv("DATAMIND_API_URL")
 
-if not DATAMIND_API_URL:
-    logger.error("❌ ERROR: DATAMIND_API_URL no está definido.")
+if not TELEGRAM_TOKEN:
+    logger.error("❌ ERROR: TELEGRAM_TOKEN no está configurado en Render.")
 
-# ==============================================
-# FLASK APP
-# ==============================================
+if not DATAMIND_API_URL:
+    logger.error("❌ ERROR: DATAMIND_API_URL no está configurado en Render.")
+
+bot = Bot(token=TELEGRAM_TOKEN)
+
 app = Flask(__name__)
 
-# ==============================================
-# TELEGRAM APPLICATION
-# ==============================================
-application = Application.builder().token(BOT_TOKEN).build()
-application_initialized = False
 
+# ==============================
+# HANDLERS DEL BOT
+# ==============================
 
-async def init_bot():
-    """Inicializa PTB evitando loops cerrados."""
-    global application_initialized
-
-    if not application_initialized:
-        await application.initialize()
-        await application.start()
-        application_initialized = True
-        logger.info("🚀 PTB Application inicializado correctamente.")
-
-
-# ==============================================
-# HANDLERS
-# ==============================================
-async def cmd_start(update: Update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "¡Bienvenido a NumerIA! 🔮⚽ Envíame un partido para analizar."
+        "👋 ¡Bienvenido a NumerIA!\n\n"
+        "Envíame el nombre de un partido y te daré el análisis numerológico + deportivo automático."
     )
 
 
-async def handle_message(update: Update, context):
-    text = update.message.text
-    logger.info(f"Mensaje recibido: {text}")
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja cualquier texto enviado por el usuario."""
+    user_text = update.message.text.strip()
+    logger.info(f"Mensaje recibido: {user_text}")
 
-    # Llamar DataMind con httpx async
+    # Llamada a DataMind
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.post(DATAMIND_API_URL, json={"query": text})
-            data = r.json()
+        r = requests.post(DATAMIND_API_URL, json={"query": user_text})
+        r.raise_for_status()
+        data = r.json()
+        respuesta = data.get("response", "⚠️ No se pudo interpretar la respuesta del servidor.")
     except Exception as e:
         logger.error(f"Error DataMind: {e}")
-        data = {"error": "No se pudo conectar a DataMind"}
-
-    respuesta = f"""
-📊 *NumerIA - Análisis Deportivo*
-
-🔍 Consulta: *{text}*
-
-📡 DataMind:
-`{data}`
-
-⚠️ Respuesta temporal solo de prueba.
-"""
+        respuesta = "⚠️ Hubo un problema consultando el motor de predicción."
 
     await update.message.reply_text(respuesta, parse_mode="Markdown")
 
 
-# Registrar handlers
-application.add_handler(CommandHandler("start", cmd_start))
+# ==============================
+# INICIALIZACIÓN DEL BOT
+# ==============================
+
+application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 
-# ==============================================
-# WEBHOOK
-# ==============================================
+# ==============================
+# INICIALIZAR TELEGRAM APP UNA SOLA VEZ
+# ==============================
+
+async def start_application():
+    """Se ejecuta solo al iniciar, NO por cada webhook."""
+    await application.initialize()
+    await application.start()
+    logger.info("🚀 Telegram Application inicializado correctamente.")
+
+
+# Creamos loop principal (Render lo soporta)
+loop = asyncio.get_event_loop()
+loop.run_until_complete(start_application())
+
+
+# ==============================
+# WEBHOOK (procesado correcto)
+# ==============================
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    """Recibe updates de Telegram y los envía a la cola interna de PTB."""
+    try:
+        data = request.get_json(force=True, silent=True)
 
-    update_json = request.get_json(force=True, silent=True)
-    logger.info("====== UPDATE JSON RECIBIDO ======")
-    logger.info(update_json)
-    logger.info("==================================")
+        if not data:
+            return jsonify({"status": "no json"}), 200
 
-    if not update_json:
-        return "NO JSON", 400
+        logger.info("====== UPDATE JSON RECIBIDO ======")
+        logger.info(data)
+        logger.info("==================================")
 
-    update = Update.de_json(update_json, application.bot)
+        update = Update.de_json(data, bot)
 
-    async def process():
-        await init_bot()
-        await application.process_update(update)
+        # Enviar update a la cola interna del bot
+        application.update_queue.put_nowait(update)
 
-    # EVITAR asyncio.run()
-    loop = asyncio.get_event_loop()
-    loop.create_task(process())
+        return jsonify({"status": "ok"}), 200
 
-    return "OK", 200
-
-
-# ==============================================
-# ROOT
-# ==============================================
-@app.route("/")
-def index():
-    return "NumerIA Bot Running"
+    except Exception as e:
+        logger.error(f"❌ Error en webhook: {e}", exc_info=True)
+        return jsonify({"status": "error"}), 200
 
 
-# ==============================================
-# RUN SERVER
-# ==============================================
+@app.route("/", methods=["GET"])
+def home():
+    return "NumerIA Bot está activo ✔️", 200
+
+
+# ==============================
+# EJECUCIÓN FLASK
+# ==============================
+
 if __name__ == "__main__":
     logger.info("Iniciando NumerIA Bot con Flask en puerto 10000")
     app.run(host="0.0.0.0", port=10000)
