@@ -18,7 +18,10 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 DATAMIND_API = os.getenv("DATAMIND_API_URL")
 
 PORT = int(os.getenv("PORT", 10000))
-WEBHOOK_URL = f"https://{os.getenv('RENDER_EXTERNAL_URL')}/webhook"
+
+# Render ya DA la URL COMPLETA con https://
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL", "")
+WEBHOOK_URL = f"{RENDER_URL}/webhook"
 
 # =========================
 # LOGS
@@ -30,7 +33,7 @@ logging.basicConfig(
 log = logging.getLogger("NumerIA")
 
 # =========================
-# Handlers
+# HANDLERS
 # =========================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -58,7 +61,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         respuesta = pred.get("prediction", "❌ Error al procesar la predicción")
 
     except Exception as e:
-        log.error(f"Error consultando Datamind: {e}")
+        log.error(f"Error consultando DataMind: {e}")
         respuesta = "❌ No pude obtener datos de DataMind."
 
     await update.message.reply_text(respuesta)
@@ -72,12 +75,15 @@ def main():
     if not TOKEN:
         raise RuntimeError("❌ Falta TELEGRAM_TOKEN en variables!")
 
+    if not RENDER_URL:
+        raise RuntimeError("❌ Falta RENDER_EXTERNAL_URL!")
+
+    log.info(f"🌐 Webhook final: {WEBHOOK_URL}")
+
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT, handle_message))
-
-    log.info(f"🌐 Configurando webhook: {WEBHOOK_URL}")
 
     application.run_webhook(
         listen="0.0.0.0",
