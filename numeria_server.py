@@ -130,12 +130,21 @@ def webhook():
     update = Update.de_json(data, application.bot)
 
     async def process_update():
-        # Asegurarnos de inicializar y arrancar la Application
-        if not application.initialized:
-            await application.initialize()
-        if not application.running:
-            await application.start()
-        await application.process_update(update)
+    try:
+        # Intentamos inicializar la aplicación (si ya lo estaba, no pasa nada)
+        await application.initialize()
+    except Exception:
+        pass
+
+    try:
+        # Intentamos arrancar la aplicación (si ya está corriendo, no pasa nada)
+        await application.start()
+    except Exception:
+        pass
+
+    # Ahora sí procesamos el update
+    await application.process_update(update)
+
 
     try:
         asyncio.run(process_update())
