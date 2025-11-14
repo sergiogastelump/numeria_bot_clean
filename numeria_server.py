@@ -80,17 +80,17 @@ application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 # ============================================================
-# RUNNER ASYNC DEL BOT EN SEGUNDO PLANO
+# RUNNER ASYNC SIN POLLING (WEBHOOK MODE)
 # ============================================================
-async def run_bot():
+
+async def run_application():
     await application.initialize()
     await application.start()
-    await application.updater.start_polling()
 
 def start_bot_thread():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(run_bot())
+    loop.run_until_complete(run_application())
     loop.run_forever()
 
 threading.Thread(target=start_bot_thread, daemon=True).start()
@@ -118,7 +118,7 @@ def webhook():
 # ============================================================
 @app.route("/")
 def home():
-    return "NumerIA Bot ONLINE ✔", 200
+    return "NumerIA Bot ONLINE ✔ (Webhook Mode)", 200
 
 # ============================================================
 # RUN FLASK
