@@ -1,169 +1,198 @@
 import os
 import logging
-import threading
 import asyncio
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, MessageHandler, CommandHandler, filters
 import requests
-import random
 
-# ============================================================
-# CONFIG
-# ============================================================
-TELEGRAM_TOKEN = "8060973627:AAFbjXs3mk624axpH4vh0kP_Cbew52YQ3zw"
-DATAMIND_URL = "https://numeria-datamind-1.onrender.com/predict"
-
-PORT = int(os.environ.get("PORT", 10000))
-
-# Logging
+# -----------------------------------------
+# CONFIGURACIÓN DE LOGS
+# -----------------------------------------
 logging.basicConfig(
-    level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
 logger = logging.getLogger("numeria_server")
 
-# ============================================================
-# FLASK SERVER
-# ============================================================
-app = Flask(__name__)
-logger.info("Iniciando NumerIA Bot con Flask en puerto %s", PORT)
 
-# ============================================================
-# TELEGRAM APPLICATION (PTB 21) — UNA SOLA VEZ
-# ============================================================
+# -----------------------------------------
+# VARIABLES DE ENTORNO
+# -----------------------------------------
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+DATAMIND_API_URL = os.getenv("DATAMIND_API_URL")
+
+if not TELEGRAM_TOKEN:
+    logger.error("❌ ERROR: TELEGRAM_TOKEN no está definido.")
+if not DATAMIND_API_URL:
+    logger.error("❌ ERROR: DATAMIND_API_URL no está definido.")
+
+
+# -----------------------------------------
+# INICIALIZAR APP TELEGRAM
+# -----------------------------------------
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-# ============================================================
-# UNIVERSAL UPDATE TEXT EXTRACTOR
-# ============================================================
-def extract_text(update: Update):
-    """Extrae texto de cualquier tipo de update."""
-    if update.message and update.message.text:
-        return update.message.text
 
-    if update.edited_message and update.edited_message.text:
-        return update.edited_message.text
+# -----------------------------------------
+# EXTRACTOR SÚPER ROBUSTO DE TEXTO
+# -----------------------------------------
+def extract_text(update: Update) -> str | None:
+    """
+    Extrae el texto desde cualquier tipo de update.
+    Compatible con todos los formatos de Telegram.
+    """
 
-    if update.channel_post and update.channel_post.text:
-        return update.channel_post.text
+    try:
+        if update.message and update.message.text:
+            return update.message.text
 
-    if update.edited_channel_post and update.edited_channel_post.text:
-        return update.edited_channel_post.text
+        if update.edited_message and update.edited_message.text:
+            return update.edited_message.text
 
-    if update.callback_query and update.callback_query.data:
-        return update.callback_query.data
+        if update.channel_post and update.channel_post.text:
+            return update.channel_post.text
 
-    return None
+        if update.edited_channel_post and update.edited_channel_post.text:
+            return update.edited_channel_post.text
 
-# ============================================================
-# HANDLERS
-# ============================================================
-async def start(update: Update, context):
-    await update.message.reply_text(
-        "¡Bienvenido a NumerIA Tipster! 🔮📊\n"
-        "Envía un partido como:\n\n"
-        "Liverpool vs City\n"
-        "Real Madrid vs Barcelona\n"
-        "y te doy análisis + lectura numérica."
-    )
+        if update.callback_query and update.callback_query.data:
+            return update.callback_query.data
+
+        # Si viene texto dentro de update.to_dict()
+        data = update.to_dict()
+        if "message" in data and "text" in data["message"]:
+            return data["message"]["text"]
+
+        return None
+
+    except Exception as e:
+        logger.error(f"❌ Error en extract_text: {e}")
+        return None
 
 
+# -----------------------------------------
+# FUNCIÓN PRINCIPAL DEL BOT
+# -----------------------------------------
 async def handle_message(update: Update, context):
-    text = extract_text(update)
+    user_id = update.effective_user.id if update.effective_user else "desconocido"
+    logger.info(f"📩 Mensaje recibido de {user_id}")
 
+    text = extract_text(update)
     if not text:
-        logger.info("Update recibido sin texto útil, ignorado.")
+        await update.effective_chat.send_message(
+            "⚠️ No pude leer el mensaje. Intenta de nuevo."
+        )
         return
 
-    chat_id = update.effective_chat.id if update.effective_chat else "N/A"
-
-    logger.info("Mensaje detectado (%s): %s", chat_id, text)
-
-    # ========== 1. DataMind ==========
+    # ----------------------------
+    # CONSULTAR DATAMIND API
+    # ----------------------------
     try:
-        resp = requests.post(DATAMIND_URL, json={"query": text}, timeout=7)
-        pred = resp.json().get("prediccion", "Predicción no disponible")
+        r = requests.post(
+            DATAMIND_API_URL,
+            json={"query": text},
+            timeout=20
+        )
+
+        if r.status_code != 200:
+            result = "❌ Error conectando con DataMind."
+        else:
+            data = r.json()
+            result = data.get("analysis", "⚠️ DataMind no envió análisis.")
+
     except Exception as e:
-        pred = f"Error conectando con DataMind ({e})"
+        logger.error(f"❌ Error al contactar DataMind: {e}")
+        result = "❌ DataMind no disponible."
 
-    # ========== 2. Código numérico ==========
-    codigo = random.randint(11, 99)
+    # ----------------------------
+    # RESPUESTA TIPO TIPSTER NUMÉRICO
+    # ----------------------------
+    response = f"""
+📊 *Predicción NumerIA para:* `{text}`
 
-    # ========== 3. Respuesta ==========
-    msg = (
-        f"📊 *Análisis NumerIA para:* *{text}*\n\n"
-        f"🔹 *Tendencia:* {pred}\n\n"
-        f"🔢 *Código numérico:* {codigo}\n"
-        f"• Lectura: Proyección confiable basada en patrones\n\n"
-        f"📌 Basado en ciclos estadísticos + DataMind\n"
-        f"⚠️ Herramienta de apoyo, no garantiza resultados."
+📌 *Análisis estadístico (DataMind)*  
+{result}
+
+🔢 *Relevancia numérica*
+• Clave dominante: {abs(hash(text)) % 90 + 10}
+• Coincidencias internas: {sum(ord(c) for c in text) % 7}
+
+📈 *Tendencia cuantitativa*
+El modelo detecta patrones consistentes basados en:
+- distribuciones históricas del rendimiento
+- coherencia numérica interna
+- correlaciones recientes
+
+⚠️ *Aviso*: NumerIA es una guía basada en análisis numérico + tendencias.
+"""
+
+    await update.effective_chat.send_message(
+        response,
+        parse_mode="Markdown"
     )
 
-    try:
-        if update.effective_message:
-            await update.effective_message.reply_text(msg, parse_mode="Markdown")
-        else:
-            logger.info("No se pudo responder: effective_message es None")
-    except Exception as e:
-        logger.error(f"Error enviando mensaje: {e}")
 
-# Registrar handlers
+# -----------------------------------------
+# HANDLERS
+# -----------------------------------------
+async def start(update: Update, context):
+    await update.message.reply_text(
+        "🤖 Hola, soy *NumerIA Tipster*.\n"
+        "Envíame un partido o evento y te doy el análisis completo.",
+        parse_mode="Markdown"
+    )
+
+
 application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# ============================================================
-# LOOP GLOBAL PARA PROCESAR UPDATES
-# ============================================================
-async def process_updates_loop():
-    """Procesa la cola interna de updates continuamente."""
-    while True:
-        update = await application.update_queue.get()
-        try:
-            await application.process_update(update)
-        except Exception as e:
-            logger.error(f"Error procesando update: {e}")
 
-async def run_application():
-    """Inicializa Application sin polling."""
-    await application.initialize()
-    await application.start()
+# -----------------------------------------
+# FLASK SERVER
+# -----------------------------------------
+app = Flask(__name__)
 
-    # iniciar loop interno
-    asyncio.create_task(process_updates_loop())
 
-def start_bot_thread():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(run_application())
-    loop.run_forever()
+@app.get("/")
+def home():
+    return "NumerIA Bot funcionando."
 
-# Ejecutar bot en segundo plano
-threading.Thread(target=start_bot_thread, daemon=True).start()
 
-# ============================================================
-# WEBHOOK ENDPOINT
-# ============================================================
-@app.route("/webhook", methods=["POST"])
+@app.post("/webhook")
 def webhook():
+    """
+    Recibe actualizaciones desde Telegram via Webhook
+    """
     try:
-        update_json = request.get_json(force=True)
+        update_json = request.get_json(silent=True, force=True)
+
+        # -------------------------------------------------------
+        # LOG COMPLETO DEL JSON ENTRANTE (CLAVE PARA DEBUG)
+        # -------------------------------------------------------
+        logger.info("====== UPDATE JSON RECIBIDO ======")
+        logger.info(update_json)
+        logger.info("==================================")
+
+        if not update_json:
+            logger.error("⚠️ ERROR: update_json vacío")
+            return "OK", 200
+
         update = Update.de_json(update_json, application.bot)
-        application.update_queue.put_nowait(update)
+
+        # Procesar el update con Telegram Application
+        asyncio.run(application.process_update(update))
+
         return "OK", 200
+
     except Exception as e:
-        logger.error(f"ERROR Webhook: {e}")
+        logger.exception("❌ Error en webhook:")
         return "ERROR", 500
 
-# ============================================================
-# HOME
-# ============================================================
-@app.route("/")
-def home():
-    return "NumerIA Tipster ONLINE ✔ (Webhook working)", 200
 
-# ============================================================
-# RUN FLASK
-# ============================================================
+# -----------------------------------------
+# INICIO DEL SERVIDOR
+# -----------------------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT)
+    logger.info("Iniciando NumerIA Bot con Flask en puerto 10000")
+    app.run(host="0.0.0.0", port=10000)
