@@ -1,12 +1,12 @@
 import os
 import logging
+import threading
 import asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 import requests
 import random
-from datetime import datetime
 
 # ============================================================
 # CONFIG
@@ -24,26 +24,26 @@ logging.basicConfig(
 logger = logging.getLogger("numeria_server")
 
 # ============================================================
-# FLASK APP
+# FLASK SERVER
 # ============================================================
 app = Flask(__name__)
 logger.info("Iniciando NumerIA Bot con Flask en puerto %s", PORT)
 
 # ============================================================
-# APPLICATION (PTB 21) — UNA SOLA INICIALIZACIÓN
+# TELEGRAM APPLICATION (PTB 21) — UNA SOLA VEZ
 # ============================================================
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 # ============================================================
-# COMANDOS
+# HANDLERS
 # ============================================================
 async def start(update: Update, context):
     await update.message.reply_text(
         "¡Bienvenido a NumerIA Tipster! 🔮📊\n"
-        "Envíame un partido como:\n\n"
+        "Escribe un partido como:\n\n"
         "Liverpool vs City\n"
         "Real Madrid vs Barcelona\n"
-        "Y te daré análisis deportivo + lectura numérica."
+        "Y te daré análisis + lectura numérica."
     )
 
 async def handle_message(update: Update, context):
@@ -52,67 +52,48 @@ async def handle_message(update: Update, context):
 
     logger.info("Mensaje de Sergio (%s): %s", chat_id, text)
 
-    # ------------------------------------------
-    # 1. CONSULTA A DATAMIND
-    # ------------------------------------------
+    # 1. DataMind
     try:
-        dm = requests.post(DATAMIND_URL, json={"query": text}, timeout=7)
-        dato = dm.json()
-        tendencia = dato.get("prediccion", "No disponible")
-    except Exception as e:
-        logger.error(f"Error DataMind: {e}")
-        tendencia = "Error conectando con DataMind."
+        resp = requests.post(DATAMIND_URL, json={"query": text}, timeout=6)
+        pred = resp.json().get("prediccion", "No disponible")
+    except:
+        pred = "Error conectando con DataMind."
 
-    # ------------------------------------------
-    # 2. CÓDIGO NUMEROLÓGICO
-    # ------------------------------------------
-    codigo = random.randint(10, 99)
-    lectura_codigo = "Equilibrio numérico entre tendencia y riesgo."
-    etiqueta = "Proyección estadística validada"
+    # 2. Código numérico
+    codigo = random.randint(11, 99)
 
-    # ------------------------------------------
-    # 3. RESPUESTA FINAL
-    # ------------------------------------------
-    respuesta = (
+    # 3. Respuesta
+    msg = (
         f"📊 *Análisis NumerIA para:* *{text}*\n\n"
-
-        f"🔹 *Tendencia principal:* {tendencia}\n\n"
-
+        f"🔹 *Tendencia:* {pred}\n\n"
         f"🔢 *Cálculo numérico*\n"
-        f"• Código estadístico: *{codigo}*\n"
-        f"• Interpretación: {lectura_codigo}\n"
-        f"• Etiqueta: {etiqueta}\n\n"
-
-        f"📌 *Recomendación tipster:*\n"
-        f"Basado en ciclos numéricos, memoria histórica y proyección DataMind.\n\n"
-
-        f"⚠️ NumerIA no garantiza resultados. Es una herramienta profesional de apoyo."
+        f"• Código: *{codigo}*\n"
+        f"• Lectura: Proyección equilibrada\n\n"
+        f"📌 Basado en patrones numéricos + DataMind\n"
+        f"⚠️ Herramienta de apoyo, no garantiza resultados."
     )
 
-    # ------------------------------------------
-    # 4. ENVÍO DE MENSAJE
-    # ------------------------------------------
-    await update.message.reply_text(respuesta, parse_mode="Markdown")
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
-
-# ============================================================
-# HANDLERS
-# ============================================================
+# Registrar handlers
 application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 # ============================================================
-# LOOP GLOBAL PARA PROCESAR WEBHOOK
+# RUNNER ASYNC DEL BOT EN SEGUNDO PLANO
 # ============================================================
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
-async def process_update(update_json):
-    update = Update.de_json(update_json, application.bot)
+async def run_bot():
     await application.initialize()
-    await application.process_update(update)
-    # ❗ NO cerrar el loop, NUNCA
+    await application.start()
+    await application.updater.start_polling()
 
+def start_bot_thread():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(run_bot())
+    loop.run_forever()
+
+threading.Thread(target=start_bot_thread, daemon=True).start()
 
 # ============================================================
 # WEBHOOK
@@ -121,23 +102,26 @@ async def process_update(update_json):
 def webhook():
     try:
         update_json = request.get_json(force=True)
-        loop.create_task(process_update(update_json))
-        return "OK", 200
-    except Exception as e:
-        logger.error(f"Error procesando update: {e}")
-        return "ERROR", 500
+        update = Update.de_json(update_json, application.bot)
 
+        # Enviar update al queue interno de PTB
+        application.update_queue.put_nowait(update)
+
+        return "OK", 200
+
+    except Exception as e:
+        logger.error(f"Error en webhook: {e}")
+        return "ERROR", 500
 
 # ============================================================
 # HOME
 # ============================================================
-@app.route("/", methods=["GET"])
+@app.route("/")
 def home():
-    return "NumerIA Bot Running", 200
-
+    return "NumerIA Bot ONLINE ✔", 200
 
 # ============================================================
-# RUN
+# RUN FLASK
 # ============================================================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT)
