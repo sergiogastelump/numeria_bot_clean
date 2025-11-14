@@ -235,9 +235,16 @@ def webhook():
     try:
         data = request.get_json(force=True)
         update = Update.de_json(data, application.bot)
-        asyncio.run(application.process_update(update))
+
+        async def process():
+            await application.initialize()
+            await application.process_update(update)
+
+        asyncio.run(process())
+
     except Exception as e:
         logger.exception("Error procesando update: %s", e)
+
     return "OK", 200
 
 
