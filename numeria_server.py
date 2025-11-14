@@ -1,14 +1,23 @@
 import os
 import asyncio
 import logging
-import json
-from flask import Flask, request
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
 import requests
+from flask import Flask, request
+
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+
+# Motores internos de NumerIA
+from modules.predict_engine import generate_numeria_response
 
 # -------------------------------------------------
-# CONFIGURACIÓN BÁSICA
+# Configuración básica
 # -------------------------------------------------
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -16,241 +25,138 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-if not TOKEN:
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+if not TELEGRAM_TOKEN:
     raise RuntimeError("Falta TELEGRAM_TOKEN en variables de entorno.")
 
-DATAMIND_URL = os.getenv("DATAMIND_URL", "https://numeria-datamind.onrender.com/predict")
+WEBHOOK_PATH = "/webhook"
+PORT = int(os.getenv("PORT", 10000))
 
-premium_env = os.getenv("PREMIUM_USERS", "").strip()
-PREMIUM_USERS = set(
-    uid.strip() for uid in premium_env.split(",") if uid.strip().isdigit()
+# -------------------------------------------------
+# Inicializar Application de python-telegram-bot 21.x
+# -------------------------------------------------
+application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+# -------------------------------------------------
+# Handlers de comandos
+# -------------------------------------------------
+WELCOME_TEXT = (
+    "👋 Bienvenido a *NumerIA Tipster*.\n\n"
+    "Envíame un partido o enfrentamiento, por ejemplo:\n"
+    "• `Liverpool vs City`\n"
+    "• `Lakers vs Celtics`\n"
+    "• `Yankees vs Red Sox`\n"
+    "• `Cowboys vs Eagles`\n\n"
+    "Y recibirás una lectura con:\n"
+    "• Datos reales (DataMind)\n"
+    "• Análisis numérico (numerología técnica + gematría)\n"
+    "• Interpretación estilo tipster profesional\n\n"
+    "_Aviso: NumerIA es una guía avanzada, no garantiza resultados._"
 )
 
-app = Flask(__name__)
-application = Application.builder().token(TOKEN).build()
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Comando /start."""
+    await update.message.reply_text(WELCOME_TEXT, parse_mode="Markdown")
 
 
-# -------------------------------------------------
-# FUNCIONES NÚCLEO: CÓDIGOS DE PODER, INTERPRETACIÓN, TIPSTER
-# -------------------------------------------------
-def calcular_codigo_poder(texto: str) -> dict:
-    limpio = "".join(ch for ch in texto.lower() if ch.isalnum())
-    if not limpio:
-        base = 7
-    else:
-        base = sum(ord(ch) for ch in limpio) % 99 + 1
-
-    if base <= 22:
-        arquetipo = "Inicio y construcción"
-        mensaje = "Energía ideal para comenzar retos, construir bank y tomar decisiones calculadas."
-    elif base <= 44:
-        arquetipo = "Expansión y goles"
-        mensaje = "Energía ofensiva, propicia para marcadores con goles y tendencias over."
-    elif base <= 66:
-        arquetipo = "Equilibrio y cautela"
-        mensaje = "Energía de control: ideal para mercados más seguros o combinaciones moderadas."
-    elif base <= 88:
-        arquetipo = "Riesgo inteligente"
-        mensaje = "Energía de apuesta valiente pero con plan, perfecta para buscar cuotas más altas."
-    else:
-        arquetipo = "Transformación total"
-        mensaje = "Energía de giros inesperados, ideal para sorpresas y handicaps creativos."
-
-    return {
-        "codigo": base,
-        "arquetipo": arquetipo,
-        "mensaje": mensaje,
-    }
-
-
-def extraer_info_datamind(data: dict | None) -> dict:
-    if not isinstance(data, dict):
-        return {
-            "bruto": str(data),
-            "prediccion": "Sin formato reconocido.",
-            "confianza": None,
-            "mercado": None,
-            "extra": {},
-        }
-
-    pred = (
-        data.get("prediction")
-        or data.get("prediccion")
-        or data.get("result")
-        or data.get("resultado")
-        or "No se encontró una predicción clara."
-    )
-
-    conf = data.get("confidence") or data.get("confianza")
-    mercado = data.get("market") or data.get("mercado")
-
-    extra = {
-        k: v
-        for k, v in data.items()
-        if k not in {"prediction", "prediccion", "result", "resultado", "confidence", "confianza", "market", "mercado"}
-    }
-
-    return {
-        "bruto": data,
-        "prediccion": pred,
-        "confianza": conf,
-        "mercado": mercado,
-        "extra": extra,
-    }
-
-
-def construir_mensaje_tipster(
-    consulta_usuario: str,
-    info_dm: dict | None,
-    info_codigo: dict,
-    es_premium: bool,
-) -> str:
-
-    base = extraer_info_datamind(info_dm)
-
-    titulo = f"🔥 *Lectura NumerIA* para: _{consulta_usuario}_\n\n"
-
-    bloque_deportivo = "📊 *Análisis deportivo*\n"
-    bloque_deportivo += f"• Tendencia principal: *{base['prediccion']}*\n"
-
-    if base["mercado"]:
-        bloque_deportivo += f"• Mercado sugerido: `{base['mercado']}`\n"
-
-    if base["confianza"] is not None:
-        try:
-            conf_pct = float(base["confianza"]) * 100 if float(base["confianza"]) <= 1 else float(base["confianza"])
-            bloque_deportivo += f"• Confianza modelo: *{conf_pct:.1f}%*\n"
-        except:
-            bloque_deportivo += f"• Confianza modelo: *{base['confianza']}*\n"
-
-    bloque_poder = "🔮 *Código de poder NumerIA*\n"
-    bloque_poder += f"• Código: *{info_codigo['codigo']}*\n"
-    bloque_poder += f"• Arquetipo: _{info_codigo['arquetipo']}_\n"
-    bloque_poder += f"• Lectura: {info_codigo['mensaje']}\n\n"
-
-    if es_premium:
-        bloque_premium = "💎 *Modo Premium activo*\n"
-        bloque_premium += "• Recomendación avanzada: combina lectura con stake fijo o gradual según tu reto.\n"
-        bloque_premium += "• Enfoque sugerido: mercados coherentes con la tendencia y energía del partido.\n"
-    else:
-        bloque_premium = "🆓 *Modo Free*\n"
-        bloque_premium += "Lectura base completa. Para escenarios alternos y gestión de bank avanzada,\n"
-        bloque_premium += "puedes activar Premium más adelante.\n"
-
-    cierre = "\n⚠️ *Aviso*: NumerIA es una guía inteligente, no garantiza resultados."
-
-    return titulo + bloque_deportivo + "\n" + bloque_poder + bloque_premium + cierre
-
-
-# -------------------------------------------------
-# HANDLERS
-# -------------------------------------------------
-async def start(update: Update, context):
-    user = update.effective_user
-    es_premium = str(user.id) in PREMIUM_USERS
-
-    mensaje = (
-        f"Hola {user.first_name or ''}, soy *NumerIA* 🤖✨\n\n"
-        "Tu asistente tipster IA personal.\n\n"
-        "Envíame:\n"
-        "• Un partido (ej: `Liverpool vs City`)\n"
-        "• Una liga + pick (ej: `Serie A over 2.5`)\n"
-        "• O un código (ej: `COD 27`)\n"
-        "y te daré una lectura numérica + deportiva.\n\n"
-    )
-
-    if es_premium:
-        mensaje += "💎 *Premium activado.*\n"
-    else:
-        mensaje += "🆓 Modo Free activo.\n"
-
-    await update.message.reply_text(mensaje, parse_mode="Markdown")
-
-
-async def help_command(update: Update, context):
-    texto = (
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Comando /help."""
+    text = (
         "ℹ️ *Ayuda NumerIA*\n\n"
-        "Solo envía el partido o código que quieras analizar.\n"
+        "Solo envía el partido o enfrentamiento que quieras analizar.\n\n"
         "Ejemplos:\n"
-        "• `Real Madrid vs Barça`\n"
-        "• `Napoli over 2.5`\n"
-        "• `COD 33`\n"
+        "• `Liverpool vs City`\n"
+        "• `Real Madrid vs Barcelona`\n"
+        "• `Yankees vs Dodgers`\n"
+        "• `Lakers vs Warriors`\n\n"
+        "También funciona con texto más libre, pero el formato 'Equipo vs Equipo' "
+        "es el más recomendado para análisis completo."
     )
-    await update.message.reply_text(texto, parse_mode="Markdown")
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
-async def handle_message(update: Update, context):
+# -------------------------------------------------
+# Handler principal de mensajes de texto
+# -------------------------------------------------
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Procesa cualquier mensaje de texto que no sea comando."""
     if not update.message or not update.message.text:
         return
 
-    texto = update.message.text.strip()
     user = update.effective_user
-    user_id = str(user.id)
-    es_premium = user_id in PREMIUM_USERS
+    text = update.message.text.strip()
+    logger.info("Mensaje de %s (%s): %s", user.first_name, user.id, text)
 
-    logger.info("Mensaje de %s (%s): %s", user.first_name, user_id, texto)
-
-    info_codigo = calcular_codigo_poder(texto)
-
-    info_dm = None
     try:
-        resp = requests.post(DATAMIND_URL, json={"input": texto}, timeout=12)
-        if resp.status_code == 200:
-            try:
-                info_dm = resp.json()
-            except:
-                info_dm = {"prediction": resp.text}
-        else:
-            info_dm = {"prediction": "Error conectando con DataMind.", "status": resp.status_code}
+        reply_text = generate_numeria_response(text)
     except Exception as e:
-        logger.exception("Error DataMind: %s", e)
-        info_dm = {"prediction": "Error interno conectando a DataMind.", "detalle": str(e)}
+        logger.exception("Error generando respuesta NumerIA: %s", e)
+        reply_text = (
+            "⚠️ Ocurrió un error interno generando la lectura.\n"
+            "Intenta de nuevo con otro partido o en unos momentos."
+        )
 
-    mensaje_final = construir_mensaje_tipster(
-        consulta_usuario=texto,
-        info_dm=info_dm,
-        info_codigo=info_codigo,
-        es_premium=es_premium,
-    )
-
-    await update.message.reply_text(mensaje_final, parse_mode="Markdown")
+    await update.message.reply_text(reply_text, parse_mode="Markdown")
 
 
+# Registrar handlers en la Application
 application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("help", help_command))
+application.add_handler(CommandHandler("help", help_cmd))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+# -------------------------------------------------
+# Flask + Webhook
+# -------------------------------------------------
+app = Flask(__name__)
 
-# -------------------------------------------------
-# RUTAS FLASK
-# -------------------------------------------------
+
 @app.route("/", methods=["GET"])
-def home():
-    return "NumerIA Bot funcionando correctamente. 🚀", 200
+def index():
+    return "NumerIA Bot funcionando correctamente.", 200
 
 
-@app.route("/webhook", methods=["POST"])
+@app.route(WEBHOOK_PATH, methods=["POST"])
 def webhook():
+    """Endpoint que recibe las actualizaciones de Telegram."""
     try:
-        data = request.get_json(force=True)
-        update = Update.de_json(data, application.bot)
+        data = request.get_json(force=True, silent=True)
+    except Exception:
+        return "Bad Request", 400
 
-        async def process():
+    if not data:
+        return "No data", 400
+
+    update = Update.de_json(data, application.bot)
+
+    async def process_update():
+        # Asegurarnos de inicializar y arrancar la Application
+        if not application.initialized:
             await application.initialize()
-            await application.process_update(update)
+        if not application.running:
+            await application.start()
+        await application.process_update(update)
 
-        asyncio.run(process())
-
-    except Exception as e:
-        logger.exception("Error procesando update: %s", e)
+    try:
+        asyncio.run(process_update())
+    except RuntimeError as e:
+        # Por si hubiera conflicto de event loop, intentamos crear uno nuevo
+        logger.error("Error procesando update: %s", e)
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(process_update())
+        finally:
+            asyncio.set_event_loop(None)
 
     return "OK", 200
 
 
 # -------------------------------------------------
-# LOCAL (Render no lo usa)
+# Main local (en Render solo levanta Flask)
 # -------------------------------------------------
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    # Webhook local/manual opcional (no necesario en Render si ya lo configuraste desde BotFather)
+    # Solo por si quieres probar en otro entorno.
+    logger.info("Iniciando NumerIA Bot con Flask en puerto %s", PORT)
+    app.run(host="0.0.0.0", port=PORT)
