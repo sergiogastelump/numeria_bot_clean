@@ -34,6 +34,27 @@ logger.info("Iniciando NumerIA Bot con Flask en puerto %s", PORT)
 # ============================================================
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+# ============================================================
+# UNIVERSAL UPDATE TEXT EXTRACTOR
+# ============================================================
+def extract_text(update: Update):
+    """Extrae texto de cualquier tipo de update."""
+    if update.message and update.message.text:
+        return update.message.text
+
+    if update.edited_message and update.edited_message.text:
+        return update.edited_message.text
+
+    if update.channel_post and update.channel_post.text:
+        return update.channel_post.text
+
+    if update.edited_channel_post and update.edited_channel_post.text:
+        return update.edited_channel_post.text
+
+    if update.callback_query and update.callback_query.data:
+        return update.callback_query.data
+
+    return None
 
 # ============================================================
 # HANDLERS
@@ -49,22 +70,27 @@ async def start(update: Update, context):
 
 
 async def handle_message(update: Update, context):
-    text = update.message.text.strip()
-    chat_id = update.effective_chat.id
+    text = extract_text(update)
 
-    logger.info("Mensaje de Sergio (%s): %s", chat_id, text)
+    if not text:
+        logger.info("Update recibido sin texto útil, ignorado.")
+        return
+
+    chat_id = update.effective_chat.id if update.effective_chat else "N/A"
+
+    logger.info("Mensaje detectado (%s): %s", chat_id, text)
 
     # ========== 1. DataMind ==========
     try:
-        dm = requests.post(DATAMIND_URL, json={"query": text}, timeout=7)
-        pred = dm.json().get("prediccion", "Predicción no disponible")
+        resp = requests.post(DATAMIND_URL, json={"query": text}, timeout=7)
+        pred = resp.json().get("prediccion", "Predicción no disponible")
     except Exception as e:
         pred = f"Error conectando con DataMind ({e})"
 
-    # ========== 2. Número ==========
+    # ========== 2. Código numérico ==========
     codigo = random.randint(11, 99)
 
-    # ========== 3. Mensaje ==========
+    # ========== 3. Respuesta ==========
     msg = (
         f"📊 *Análisis NumerIA para:* *{text}*\n\n"
         f"🔹 *Tendencia:* {pred}\n\n"
@@ -74,13 +100,17 @@ async def handle_message(update: Update, context):
         f"⚠️ Herramienta de apoyo, no garantiza resultados."
     )
 
-    await update.message.reply_text(msg, parse_mode="Markdown")
-
+    try:
+        if update.effective_message:
+            await update.effective_message.reply_text(msg, parse_mode="Markdown")
+        else:
+            logger.info("No se pudo responder: effective_message es None")
+    except Exception as e:
+        logger.error(f"Error enviando mensaje: {e}")
 
 # Registrar handlers
 application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
+application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
 # ============================================================
 # LOOP GLOBAL PARA PROCESAR UPDATES
@@ -94,7 +124,6 @@ async def process_updates_loop():
         except Exception as e:
             logger.error(f"Error procesando update: {e}")
 
-
 async def run_application():
     """Inicializa Application sin polling."""
     await application.initialize()
@@ -103,20 +132,17 @@ async def run_application():
     # iniciar loop interno
     asyncio.create_task(process_updates_loop())
 
-
 def start_bot_thread():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(run_application())
     loop.run_forever()
 
-
 # Ejecutar bot en segundo plano
 threading.Thread(target=start_bot_thread, daemon=True).start()
 
-
 # ============================================================
-# WEBHOOK
+# WEBHOOK ENDPOINT
 # ============================================================
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -129,14 +155,12 @@ def webhook():
         logger.error(f"ERROR Webhook: {e}")
         return "ERROR", 500
 
-
 # ============================================================
 # HOME
 # ============================================================
 @app.route("/")
 def home():
     return "NumerIA Tipster ONLINE ✔ (Webhook working)", 200
-
 
 # ============================================================
 # RUN FLASK
