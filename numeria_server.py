@@ -1,7 +1,5 @@
 import os
 import logging
-import asyncio
-import aiohttp
 import requests
 from telegram import Update
 from telegram.ext import (
@@ -9,8 +7,10 @@ from telegram.ext import (
     MessageHandler,
     CommandHandler,
     ContextTypes,
+    CallbackContext,
     filters
 )
+import aiohttp
 
 # =========================
 # CONFIGURACIÓN
@@ -72,59 +72,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
-# WEBHOOK INIT
+# KEEP ALIVE CORRECTO (JobQueue)
+# =========================
+async def ping_datamind(context: CallbackContext):
+    base_url = DATAMIND_API.replace("/predict", "")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(base_url) as resp:
+                log.info(f"Ping DataMind → {resp.status}")
+    except Exception as e:
+        log.error(f"KeepAlive error: {e}")
+
+
+# =========================
+# POST INIT (se ejecuta cuando inicia Application)
 # =========================
 async def post_init(application: Application):
     log.info(f"🌐 Registrando webhook: {WEBHOOK_URL}")
     await application.bot.delete_webhook()
     await application.bot.set_webhook(url=WEBHOOK_URL)
 
-
-# =========================
-# KEEP ALIVE (mantiene DataMind vivo)
-# =========================
-async def keep_alive():
-    log.info("🟢 KeepAlive iniciado (ping cada 50 segundos)")
-
-    base_url = DATAMIND_API.replace("/predict", "") if DATAMIND_API else None
-    if not base_url:
-        log.error("❌ KeepAlive no pudo iniciar: DATAMIND_API_URL no encontrado")
-        return
-
-    while True:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(base_url) as resp:
-                    log.info(f"Ping DataMind → {resp.status}")
-        except Exception as e:
-            log.error(f"KeepAlive error: {e}")
-
-        await asyncio.sleep(50)  # Render FREE se duerme al minuto → 50s es perfecto.
+    # Keep-alive cada 50 segundos
+    application.job_queue.run_repeating(ping_datamind, interval=50, first=5)
+    log.info("🟢 KeepAlive activado (JobQueue)")
 
 
 # =========================
-# MAIN (Webhooks + Gunicorn)
+# MAIN
 # =========================
-application = Application.builder().token(TOKEN).post_init(post_init).build()
-
-application.add_handler(CommandHandler("start", start))
-application.add_handler(
-    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
-)
-
-
 def run():
-    log.info("🚀 NumerIA iniciado (Render + Gunicorn + KeepAlive)")
+    log.info("🚀 NumerIA iniciado (Render + Gunicorn + Webhook + KeepAlive)")
 
-    # Ejecutar keep alive
-    application.create_task(keep_alive())
+    application = (
+        Application.builder()
+        .token(TOKEN)
+        .post_init(post_init)
+        .build()
+    )
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+    )
 
     application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=WEBHOOK_PATH.lstrip("/"),
         webhook_url=WEBHOOK_URL,
-        drop_pending_updates=True,
+        drop_pending_updates=True
     )
 
 
