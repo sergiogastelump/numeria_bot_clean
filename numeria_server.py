@@ -80,8 +80,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Toma primero 'prediction', si no, algún mensaje alterno
-    respuesta = pred.get("prediction") or pred.get("message") or \
-        "❌ No recibí una predicción válida de DataMind."
+    respuesta = (
+        pred.get("prediction")
+        or pred.get("message")
+        or "❌ No recibí una predicción válida de DataMind."
+    )
 
     await update.message.reply_text(str(respuesta))
 
